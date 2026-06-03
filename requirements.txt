@@ -1,0 +1,5 @@
+streamlit
+groq
+sentencepiece
+PyPDF2
+python-docx
