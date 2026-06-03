@@ -8,7 +8,7 @@ from docx import Document
 import tempfile
 
 # Logo URL - GJ.AI LOGOSU
-LOGO_URL = "https://z-cdn-media.chatglm.cn/files/97efb701-480f-41e8-a54d-d828ce634224.jpeg"
+LOGO_URL = LOGO_URL = "https://z-cdn-media.chatglm.cn/files/97efb701-480f-41e8-a54d-d828ce634224.jpeg?auth_key=1880000279-e3e53963895d4cb2b17766ad29dd2480-0-3f2ced5648a41f4923250c661dc275fd"
 
 # Sayfa ayarları
 st.set_page_config(page_title="IQ.ai", page_icon="🧠", layout="wide")
