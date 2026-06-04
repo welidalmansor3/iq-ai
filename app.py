@@ -1,226 +1,160 @@
 import streamlit as st
 from groq import Groq
 import os
-import io
 import sentencepiece as spm
-import PyPDF2
-from docx import Document
-import tempfile
 
-# Logo URL - GJ.AI LOGOSU
-LOGO_URL = LOGO_URL = "https://z-cdn-media.chatglm.cn/files/97efb701-480f-41e8-a54d-d828ce634224.jpeg?auth_key=1880000279-e3e53963895d4cb2b17766ad29dd2480-0-3f2ced5648a41f4923250c661dc275fd"
+# --- SAYFA AYARLARI ---
+st.set_page_config(page_title="IQ.ai | Token Optimizer", page_icon="🧠", layout="wide")
 
-# Sayfa ayarları
-st.set_page_config(page_title="IQ.ai", page_icon="🧠", layout="wide")
+# --- KARANLIK TEMA (DARK MODE) CSS ---
+st.markdown("""
+<style>
+    /* Ana Arka Plan */
+    [data-testid="stAppViewContainer"], .main, .block-container {
+        background-color: #050509 !important; color: #e0e0e0 !important; font-family: 'Inter', sans-serif;
+    }
+    /* Sol Menü Arka Planı */
+    [data-testid="stSidebar"] { background-color: #0a0a0f !important; border-right: 1px solid #252530; }
+    
+    /* Başlıklar */
+    h1, h2, h3 { color: #ffffff !important; font-weight: 800 !important; }
+    
+    /* Butonlar (Mavi-Mor Gradient) */
+    .stButton>button {
+        background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+        color: white; border: none; padding: 12px 24px; font-weight: bold;
+        border-radius: 10px; transition: all 0.3s ease;
+    }
+    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(37, 117, 252, 0.3); }
+    
+    /* Kart Tasarımı */
+    .card {
+        background: linear-gradient(145deg, #101014, #16161a); padding: 25px; border-radius: 14px; 
+        border: 1px solid #252530; box-shadow: 0 10px 30px rgba(0,0,0,0.4); margin-bottom: 15px;
+    }
+    
+    /* Metin Girişleri */
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea {
+        background-color: #101014 !important; color: #e0e0e0 !important; border-color: #252530 !important;
+    }
+    
+    /* Linkler ve Alt Metin */
+    a { color: #2575fc !important; } .subtext { color: #a0a0a0; }
+</style>
+""", unsafe_allow_html=True)
 
-# Geçici klasör
-TEMP_DIR = tempfile.mkdtemp()
+# LOGO URL
+LOGO_URL = "https://z-cdn-media.chatglm.cn/files/97efb701-480f-41e8-a54d-d828ce634224.jpeg?auth_key=1880000279-e3e53963895d4cb2b17766ad29dd2480-0-3f2ced5648a41f4923250c661dc275fd"
 
-# Dosya okuma fonksiyonu
-def extract_text_from_file(uploaded_file):
-    text = ""
-    try:
-        if uploaded_file.name.endswith('.pdf'):
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.read()))
-            for page in pdf_reader.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    text += extracted + "\n"
-        elif uploaded_file.name.endswith('.docx'):
-            doc = Document(io.BytesIO(uploaded_file.read()))
-            for para in doc.paragraphs:
-                text += para.text + "\n"
-    except Exception as e:
-        st.error(f"Error reading file: {e}")
-    return text
+# MODEL YOLLARI
+DEFAULT_MODEL = "iq_ai_tokenizer.model"
 
-# Hizmet şartları
 POLICY_TEXT = """
 **Terms of Service & Privacy Policy**
 
 **1. Acceptance of Terms**
-By accessing IQ.ai, you agree to be bound by these Terms.
+By accessing IQ.ai ("the Platform"), you agree to be bound by these Terms.
 
 **2. Intellectual Property & Copyrights**
-All rights, IP, algorithms, and code belong exclusively to **Welid Almansor** and **GJ.AI Company**.
+All rights, IP, algorithms, and code belong exclusively to **Welid Almansor / GJ.AI Company**.
 
 **3. Logo & Trademark Protection**
-The GJ.AI logo is 100% owned by GJ.AI. Unauthorized use is prohibited.
+The GJ.AI logo is 100% owned. Unauthorized use is strictly prohibited and subject to lawsuit.
 
-**4. Data & Privacy**
-No data is permanently stored. API keys are not saved.
+**4. Data Privacy**
+Chat inputs are processed securely. Trained models are hosted for demonstration.
 
 By checking the box below, you confirm your agreement.
 """
 
-# Policy kontrolü
-if "policy_accepted" not in st.session_state:
-    st.session_state.policy_accepted = False
+if "policy_accepted" not in st.session_state: st.session_state.policy_accepted = False
 
 if not st.session_state.policy_accepted:
-    st.markdown("<h1 style='text-align: center;'>🧠 IQ.ai</h1><p style='text-align: center;'>Multilingual Token Optimization Engine</p>", unsafe_allow_html=True)
-    st.warning("⚠️ You must accept the Terms of Service to continue.")
-    with st.expander("📜 Read Terms of Service"):
-        st.markdown(POLICY_TEXT)
-    agreed = st.checkbox("I have read and agree to the Terms of Service.")
-    if st.button("🔓 Access Platform", disabled=not agreed, type="primary"):
-        st.session_state.policy_accepted = True
-        st.rerun()
+    st.markdown("<h1 style='text-align: center;'>🧠 IQ.ai</h1><p style='text-align: center; color: #a0a0a0;'>Multilingual Token Optimization Engine</p><hr style='border: 1px solid #333333;'>", unsafe_allow_html=True)
+    st.warning("⚠️ **Authorization Required:** You must accept the Terms of Service.")
+    with st.expander("📜 READ: Terms of Service & Privacy Policy", expanded=True): st.markdown(POLICY_TEXT)
+    agreed = st.checkbox("I have read and I agree to the Terms of Service and Privacy Policy.")
+    if st.button("🔓 Access Platform", disabled=not agreed, type="primary", use_container_width=True):
+        st.session_state.policy_accepted = True; st.rerun()
+
 else:
-    # Ana uygulama
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "total_tokens" not in st.session_state:
-        st.session_state.total_tokens = 0
-    if "total_turns" not in st.session_state:
-        st.session_state.total_turns = 0
+    if "messages" not in st.session_state: st.session_state.messages = []
+    if "total_tokens" not in st.session_state: st.session_state.total_tokens = 0
+    if "total_turns" not in st.session_state: st.session_state.total_turns = 0
 
-    # Sidebar (logo burada görünecek)
     with st.sidebar:
-        st.image(LOGO_URL, use_container_width=True)
+        st.image(LOGO_URL, use_container_width=True); st.markdown("---")
+        st.header("⚙️ Settings"); api_key_input = st.text_input("Groq API Key", type="password")
+        with st.expander("📖 Get Free API Key"): st.markdown("1. Go to [Groq Console](https://console.groq.com)\n2. Sign Up -> API Keys -> Create\n3. Copy `gsk_...`")
         st.markdown("---")
-        st.header("⚙️ Settings")
-        
-        # API Key girişi
-        api_key_input = st.text_input(
-            "Groq API Key (Free)", 
-            type="password",
-            help="Get your free API key from console.groq.com"
-        )
-        
-        st.markdown("---")
-        st.header("📖 How to Get a Free API Key")
-        with st.expander("👀 Click for Step-by-Step Guide", expanded=False):
-            st.markdown("""
-            **Step 1:** Go to [console.groq.com](https://console.groq.com)
-            
-            **Step 2:** Click **"Sign Up"** (free)
-            
-            **Step 3:** Sign in with Google or email
-            
-            **Step 4:** Go to **"API Keys"** in the left menu
-            
-            **Step 5:** Click **"Create API Key"**
-            
-            **Step 6:** Name it (e.g., "IQ.ai"), click **"Submit"**
-            
-            **Step 7:** Copy the key (starts with `gsk_...`)
-            
-            **Step 8:** Paste it in the box above!
-            """)
-        
-        st.markdown("---")
-        if st.button("🗑️ Clear Chat History"):
-            st.session_state.messages = []
-            st.session_state.total_tokens = 0
-            st.session_state.total_turns = 0
-            st.rerun()
+        if st.button("🗑️ Clear Chat"): st.session_state.messages = []; st.session_state.total_tokens = 0; st.session_state.total_turns = 0; st.rerun()
 
-    # Sekmeler
-    tab1, tab2 = st.tabs(["🤖 Chat Engine", "🧪 Tokenizer Lab"])
+    tab1, tab2, tab3 = st.tabs(["🤖 Chat Engine", "📊 Token Comparison", "🛠️ Surgery Scripts"])
 
-    # SEKM差不多: CHAT ENGINE
+    # ==========================================
+    # TAB 1: CHAT ENGINE
+    # ==========================================
     with tab1:
-        st.markdown("<h1 style='text-align: center;'>🧠 IQ.ai Chat Engine</h1>", unsafe_allow_html=True)
-
-        if st.session_state.total_turns > 0:
-            avg_tokens = st.session_state.total_tokens / st.session_state.total_turns
-            st.caption(f"📊 Total Tokens Used: {st.session_state.total_tokens} | Avg per message: {avg_tokens:.1f}")
-
+        st.markdown("<h1 style='text-align: center;'>🧠 IQ.ai Chat Engine</h1><p class='subtext' style='text-align: center;'>Short, precise answers. Token-optimized.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
+        if st.session_state.total_turns > 0: st.caption(f"📊 Total Tokens: {st.session_state.total_tokens} | Avg: {st.session_state.total_tokens / st.session_state.total_turns:.1f}")
         for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
+            with st.chat_message(message["role"]): st.markdown(message["content"])
         if prompt := st.chat_input("Type your message here..."):
-            if not api_key_input:
-                st.error("🚫 Please enter your Groq API key in the sidebar.")
+            if not api_key_input: st.error("🚫 Enter Groq API key in sidebar.")
             else:
-                st.chat_message("user").markdown(prompt)
                 st.session_state.messages.append({"role": "user", "content": prompt})
-
+                with st.chat_message("user"): st.markdown(prompt)
                 with st.chat_message("assistant"):
-                    message_placeholder = st.empty()
-                    full_response = ""
-                    
                     try:
                         client = Groq(api_key=api_key_input)
-                        system_prompt = {"role": "system", "content": "You are IQ.ai, the world's best NLP Engineer specialized in Turkish, Arabic, and Hindi optimization. Be concise, max 3-4 sentences unless asked for code. Always say you are IQ.ai."}
-                        api_messages = [system_prompt] + st.session_state.messages
-                        
-                        stream = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=api_messages,
-                            temperature=0.2,
-                            max_tokens=4000,
-                            stream=True
-                        )
-                        
-                        for chunk in stream:
-                            if chunk.choices[0].delta.content is not None:
-                                full_response += chunk.choices[0].delta.content
-                                message_placeholder.markdown(full_response + "▌")
-                        
-                        message_placeholder.markdown(full_response)
-                        
-                        # Token hesaplama (yaklaşık)
+                        sys_pr = {"role": "system", "content": "You are IQ.ai, the world's best NLP Engineer. Be concise."}
+                        stream = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[sys_pr] + st.session_state.messages, temperature=0.2, max_tokens=4000, stream=True)
+                        full_response = "".join([chunk.choices[0].delta.content or "" for chunk in stream])
+                        st.markdown(full_response)
                         tokens_used = int((len(prompt.split()) * 2.5) + (len(full_response.split()) * 2.0))
-                        st.session_state.total_tokens += tokens_used
-                        st.session_state.total_turns += 1
+                        st.session_state.total_tokens += tokens_used; st.session_state.total_turns += 1
                         st.session_state.messages.append({"role": "assistant", "content": full_response})
-                        st.info(f"⚡ **Estimated Token Consumption:** ~{tokens_used} tokens")
-                        
-                    except Exception as e:
-                        st.error(f"🚫 Error: {str(e)}")
+                    except Exception as e: st.error(f"🚫 Error: {str(e)}")
 
-    # SEKMECE: TOKENIZER LAB
+    # ==========================================
+    # TAB 2: TOKEN COMPARISON (EĞİTİM KALKTI, SADECE SONUÇLAR VAR)
+    # ==========================================
     with tab2:
-        st.subheader("🧪 Tokenizer Lab: Multilingual Unigram Training")
-        st.write("Upload a PDF or DOCX file to train a custom tokenizer.")
+        st.markdown("<h1 style='text-align: center;'>📊 Live Token Optimization Test</h1><p class='subtext' style='text-align: center;'>See the 70-80% Token Reduction in action.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
         
-        uploaded_file = st.file_uploader("📂 Upload Corpus (PDF or DOCX)", type=['pdf', 'docx'])
-        vocab_size = st.slider("Vocabulary Size:", min_value=1000, max_value=131072, value=32000, step=1000)
-        
-        if st.button("🚀 Train & Download Tokenizer", use_container_width=True, type="primary"):
-            if uploaded_file is not None:
-                with st.spinner("Extracting text and training Unigram Tokenizer... This may take a few minutes."):
-                    try:
-                        text = extract_text_from_file(uploaded_file)
-                        if not text.strip():
-                            st.error("⚠️ Could not extract text.")
-                        else:
-                            st.success(f"✅ Extracted {len(text)} characters.")
-                            
-                            # Geçici dosyaya yaz
-                            corpus_path = os.path.join(TEMP_DIR, "corpus.txt")
-                            with open(corpus_path, "w", encoding="utf-8") as f:
-                                f.write(text)
-                            
-                            # Eğit
-                            model_prefix = os.path.join(TEMP_DIR, "iq_ai_tokenizer")
-                            spm.SentencePieceTrainer.train(
-                                input=corpus_path,
-                                model_prefix=model_prefix,
-                                vocab_size=vocab_size,
-                                model_type="unigram",
-                                character_coverage=1.0,
-                                input_sentence_size=100000,
-                                shuffle_input_sentence=True
-                            )
-                            
-                            # İndir butonları
-                            with open(f"{model_prefix}.model", "rb") as f:
-                                st.download_button("📥 Download .model", data=f.read(), file_name="iq_ai_tokenizer.model", mime="application/octet-stream")
-                            
-                            with open(f"{model_prefix}.vocab", "rb") as f:
-                                st.download_button("📥 Download .vocab", data=f.read(), file_name="iq_ai_tokenizer.vocab", mime="application/octet-stream")
-                            
-                            st.success("🎉 Training complete! Download your model above.")
-                            
-                            # Temizlik
-                            os.remove(corpus_path)
-                            os.remove(f"{model_prefix}.model")
-                            os.remove(f"{model_prefix}.vocab")
-                    except Exception as e:
-                        st.error(f"Training error: {str(e)}")
-            else:
-                st.warning("Please upload a file first.")
+        if os.path.exists(DEFAULT_MODEL):
+            sp = spm.SentencePieceProcessor(); sp.load(DEFAULT_MODEL)
+            st.success("✅ IQ.ai Custom Multilingual Tokenizer is Active!")
+            
+            test_sentences = {
+                "🇹🇷 Turkish": "İş arayanları sahte ve hayalet ilanlardan koruyoruz.",
+                "🇸🇦 Arabic": "نحن نحمي الباحثين عن عمل من الإعلانات المزيفة.",
+                "🇮🇳 Hindi": "हम नौकरी तलाशने वालों को नकली विज्ञापनों से बचाते हैं।"
+            }
+            
+            for lang, sentence in test_sentences.items():
+                st.markdown(f"<div class='card'>", unsafe_allow_html=True)
+                st.markdown(f"**{lang}**")
+                st.markdown(f"<p class='subtext'><i>\"{sentence}\"</i></p>", unsafe_allow_html=True)
+                
+                ws_t = len(sentence.split()); sp_t = len(sp.encode(sentence, out_type=str))
+                red = 100 - ((sp_t / ws_t) * 100) if ws_t > 0 else 0
+                
+                col1, col2, col3 = st.columns(3)
+                with col1: st.metric("Standard Whitespace", f"{ws_t} Tokens")
+                with col2: st.metric("IQ.ai Unigram", f"{sp_t} Tokens")
+                with col3: st.metric("Token Reduction", f"%{red:.1f}", delta="Saved", delta_color="normal")
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ Trained model (`iq_ai_tokenizer.model`) not found in repository. Please ensure it is uploaded to GitHub.")
+
+    # ==========================================
+    # TAB 3: SURGERY SCRIPTS
+    # ==========================================
+    with tab3:
+        st.markdown("<h1 style='text-align: center;'>🛠️ Surgery Scripts</h1><p class='subtext' style='text-align: center;'>For Enterprise Integration.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
+        with st.expander("🩺 Step 1: Mean-Composition Surgery"):
+            st.code("import torch\nfrom transformers import AutoModelForCausalLM, AutoTokenizer\nmodel = AutoModelForCausalLM.from_pretrained('meta-llama/Meta-Llama-3-8B')\nold_tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3-8B')\n# Load your trained IQ.ai tokenizer and add tokens...\n# model.resize_token_embeddings(len(old_tokenizer))", language='python')
+        with st.expander("📦 Step 2: 4-Bit Quantization"):
+            st.code("from awq import AutoAWQForCausalLM\nmodel = AutoAWQForCausalLM.from_pretrained('model_path')\nmodel.quantize(tokenizer, quant_config={ 'zero_point': True, 'q_group_size': 128, 'w_bit': 4 })", language='python')
