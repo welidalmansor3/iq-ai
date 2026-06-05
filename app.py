@@ -96,7 +96,7 @@ else:
     # ==========================================
     with tab1:
         st.markdown("<h1 style='text-align: center;'>🧠 IQ.ai Chat Engine</h1><p class='subtext' style='text-align: center;'>Short, precise answers. Token-optimized.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
-        if st.session_state.total_turns > 0: st.caption(f"📊 Total Tokens: {st.session_state.total_tokens} | Avg: {st.session_state.total_tokens / st.session_state.total_turns:.1f}")
+        if st.session_state.total_turns > 0: st.caption(f"📊 Total Tokens: {st.session_state.total_tokens} | Avg: {st.session_state.total_turns:.1f}")
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
         if prompt := st.chat_input("Type your message here..."):
@@ -117,14 +117,23 @@ else:
                     except Exception as e: st.error(f"🚫 Error: {str(e)}")
 
     # ==========================================
-    # TAB 2: TOKEN COMPARISON (EĞİTİM KALKTI, SADECE SONUÇLAR VAR)
+    # TAB 2: TOKEN COMPARISON (GPT-4 vs IQ.ai)
     # ==========================================
     with tab2:
-        st.markdown("<h1 style='text-align: center;'>📊 Live Token Optimization Test</h1><p class='subtext' style='text-align: center;'>See the 70-80% Token Reduction in action.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center;'>📊 Live Token Tax Benchmark</h1><p class='subtext' style='text-align: center;'>GPT-4 Tokenizer vs IQ.ai Custom Tokenizer.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
         
         if os.path.exists(DEFAULT_MODEL):
             sp = spm.SentencePieceProcessor(); sp.load(DEFAULT_MODEL)
             st.success("✅ IQ.ai Custom Multilingual Tokenizer is Active!")
+            
+            # GPT-4 Tokenizer'ı yükle
+            try:
+                import tiktoken
+                enc = tiktoken.encoding_for_model("gpt-4")
+                gpt_active = True
+            except:
+                gpt_active = False
+                st.warning("GPT-4 tokenizer could not be loaded. Comparison will be estimated based on industry averages.")
             
             test_sentences = {
                 "🇹🇷 Turkish": "İş arayanları sahte ve hayalet ilanlardan koruyoruz.",
@@ -137,13 +146,33 @@ else:
                 st.markdown(f"**{lang}**")
                 st.markdown(f"<p class='subtext'><i>\"{sentence}\"</i></p>", unsafe_allow_html=True)
                 
-                ws_t = len(sentence.split()); sp_t = len(sp.encode(sentence, out_type=str))
-                red = 100 - ((sp_t / ws_t) * 100) if ws_t > 0 else 0
+                # GPT-4 Token Sayısı
+                if gpt_active:
+                    gpt_tokens = enc.encode(sentence)
+                    gpt_count = len(gpt_tokens)
+                else:
+                    gpt_count = int(len(sentence.split()) * 2.5) 
+                
+                # IQ.ai Token Sayısı
+                iq_tokens = sp.encode(sentence, out_type=str)
+                iq_count = len(iq_tokens)
+                
+                # Gerçek Tasarruf Yüzdesi
+                reduction = 100 - ((iq_count / gpt_count) * 100) if gpt_count > 0 else 0
                 
                 col1, col2, col3 = st.columns(3)
-                with col1: st.metric("Standard Whitespace", f"{ws_t} Tokens")
-                with col2: st.metric("IQ.ai Unigram", f"{sp_t} Tokens")
-                with col3: st.metric("Token Reduction", f"%{red:.1f}", delta="Saved", delta_color="normal")
+                with col1: 
+                    st.metric("GPT-4 Tokenizer", f"{gpt_count} Tokens")
+                with col2: 
+                    st.metric("IQ.ai Unigram", f"{iq_count} Tokens")
+                with col3: 
+                    st.metric("Token Reduction", f"%{reduction:.1f}", delta="Saved", delta_color="normal")
+                
+                # Kullanıcıya tokenların nasıl parçalandığını göster
+                with st.expander("🔍 GPT-4 vs IQ.ai Token Breakdown"):
+                    if gpt_active:
+                        st.write("**GPT-4 Fragments:**", [enc.decode([t]) for t in gpt_tokens])
+                    st.write("**IQ.ai Fragments:**", iq_tokens)
                 
                 st.markdown("</div>", unsafe_allow_html=True)
         else:
