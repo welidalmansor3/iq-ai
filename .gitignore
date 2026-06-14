@@ -1,0 +1,6 @@
+iq_ai_tokenizer.model
+iq_ai_tokenizer.vocab
+*.bin
+*.safetensors
+__pycache__/
+.env
