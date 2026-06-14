@@ -1,6 +1,5 @@
 streamlit
 groq
-PyPDF2
-python-docx
 sentencepiece
 tiktoken
+duckduckgo-search
