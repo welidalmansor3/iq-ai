@@ -6,7 +6,11 @@ import tiktoken
 import re
 import time
 import json
+import tempfile
+import pandas as pd
+import plotly.express as px
 from duckduckgo_search import DDGS
+from transformers import AutoTokenizer
 
 st.set_page_config(page_title="IQ.ai | Token Optimizer", page_icon="🧠", layout="wide")
 
@@ -23,156 +27,75 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-LOGO_URL = "https://z-cdn-media.chatglm.cn/files/97efb701-480f-41e8-a54d-d828ce634224.jpeg?auth_key=1880000279-e3e53963895d4cb2b17766ad29dd2480-0-3f2ced5648a41f4923250c661dc275fd"
+LOGO_URL = "https://z-cdn-media.chatglm.cn/files/c932e5f3-aa8b-4fb9-a0d0-fd57c9056545.jpeg"
 DEFAULT_MODEL = "iq_ai_tokenizer.model"
 
-enc = tiktoken.encoding_for_model("gpt-4")
-sp = None
+# --- TOKENIZER YÜKLEMELERİ ---
+@st.cache_resource
+def load_base_tokenizers():
+    gpt4 = tiktoken.encoding_for_model("gpt-4")
+    llama = AutoTokenizer.from_pretrained("unsloth/llama-3-8b")
+    qwen = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
+    return gpt4, llama, qwen
+
+gpt4_enc, llama_tok, qwen_tok = load_base_tokenizers()
+
+# Chat Engine (Tab 1) için varsayılan model
+sp_iq = None
 if os.path.exists(DEFAULT_MODEL):
-    sp = spm.SentencePieceProcessor()
-    sp.load(DEFAULT_MODEL)
+    sp_iq = spm.SentencePieceProcessor()
+    sp_iq.load(DEFAULT_MODEL)
 
-POLICY_TEXT = """
-**Terms of Service & Privacy Policy**
-**1. Acceptance of Terms** By accessing IQ.ai ("the Platform"), you agree to be bound by these Terms.
-**2. Intellectual Property & Copyrights** All rights, IP, algorithms, and code belong exclusively to **Welid Almansor / GJ.AI Company**.
-**3. Logo & Trademark Protection** The GJ.AI logo is 100% owned. Unauthorized use is strictly prohibited and subject to lawsuit.
-**4. Data Privacy** Chat inputs are processed securely. Trained models are hosted for demonstration.
-By checking the box below, you confirm your agreement.
-"""
-
+# --- YARDIMCI FONKSİYONLAR ---
 def search_web(query, max_results=3):
     try:
         with DDGS() as ddgs:
-            results = [{"title": r.get("title",""), "url": r.get("href",""), "body": r.get("body","")} for r in ddgs.text(query, max_results=max_results)]
-            return results if results else []
+            return [{"title": r.get("title",""), "url": r.get("href",""), "body": r.get("body","")} for r in ddgs.text(query, max_results=max_results)]
     except: return []
 
 def run_integrity_check(client, question, answer):
     web_context = search_web(question)
     context_str = json.dumps(web_context, indent=2)
-    
-    prompt = f"""
-    Question: {question}
-    Model Answer: {answer}
-    Web Evidence: {context_str}
-    
-    Based on the Web Evidence, calculate strictly:
-    1. source_match (0-100): Does the Web Evidence explicitly support the answer's claims?
-    2. consistency (0-100): Is the answer internally logical without contradictions?
-    3. claim_verification (0-100): Are the specific factual claims in the answer verifiable?
-    4. hallucination_score (0-100): Amount of fabricated info (0=none, 100=total fake).
-    
-    Return ONLY valid JSON:
-    {{
-        "source_match": <int>,
-        "consistency": <int>,
-        "claim_verification": <int>,
-        "hallucination_score": <int>,
-        "reason": "<short reason>"
-    }}
-    """
+    prompt = f"Question: {question}\nModel Answer: {answer}\nWeb Evidence: {context_str}\nCalculate: 1. source_match (0-100) 2. consistency (0-100) 3. claim_verification (0-100) 4. hallucination_score (0-100). Return ONLY valid JSON: {{'source_match': int, 'consistency': int, 'claim_verification': int, 'hallucination_score': int, 'reason': 'short reason'}}"
     try:
         result = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user","content":prompt}], temperature=0)
         text = re.sub(r'```json|```', '', result.choices[0].message.content.strip())
         data = json.loads(text)
-        
-        source_match = data.get("source_match", 50)
-        consistency = data.get("consistency", 50)
-        claim_ver = data.get("claim_verification", 50)
-        hall_score = data.get("hallucination_score", 50)
-        
+        source_match = data.get("source_match", 50); consistency = data.get("consistency", 50); claim_ver = data.get("claim_verification", 50); hall_score = data.get("hallucination_score", 50)
         confidence = int((source_match * 0.4) + (consistency * 0.3) + (claim_ver * 0.3))
-        
-        return {
-            "confidence": min(100, max(0, confidence)),
-            "source_match": source_match,
-            "consistency": consistency,
-            "claim_verification": claim_ver,
-            "hallucination_score": hall_score,
-            "risk": "HIGH" if hall_score > 60 else "MEDIUM" if hall_score > 30 else "LOW",
-            "reason": data.get("reason", "N/A"),
-            "sources": web_context
-        }
+        return {"confidence": min(100, max(0, confidence)), "source_match": source_match, "consistency": consistency, "claim_verification": claim_ver, "hallucination_score": hall_score, "risk": "HIGH" if hall_score > 60 else "MEDIUM" if hall_score > 30 else "LOW", "reason": data.get("reason", "N/A"), "sources": web_context}
     except Exception as e:
         return {"confidence": 50, "source_match": 50, "consistency": 50, "claim_verification": 50, "hallucination_score": 50, "risk": "PARSE_ERR", "reason": str(e), "sources": []}
 
 def generate_health_report(token_reduction, confidence, hallucination_score, latency):
-    token_score = min(100, token_reduction * 2) if token_reduction > 0 else 0
-    cost_score = token_score
-    safety_score = 100 - hallucination_score
-    latency_score = max(0, 100 - (latency / 50))
-    
+    token_score = min(100, token_reduction * 2) if token_reduction > 0 else 0; cost_score = token_score; safety_score = 100 - hallucination_score; latency_score = max(0, 100 - (latency / 50))
     overall = int((confidence * 0.30) + (safety_score * 0.30) + (token_score * 0.15) + (cost_score * 0.15) + (latency_score * 0.10))
     return {"Token Efficiency": token_score, "Cost Score": cost_score, "Safety Score": safety_score, "Latency Score": latency_score, "Confidence": confidence, "Overall": overall}
 
-RAW_BENCHMARK = """
-General|Türkiye'nin başkenti nedir?|Ankara
-General|Dünyanın en büyük okyanusu nedir?|Pasifik
-General|Suyun kimyasal formülü nedir?|H2O
-General|Who wrote Romeo and Juliet?|Shakespeare
-General|Fransa'nın başkenti neresidir?|Paris
-General|Dünyanın en büyük kıtası hangisidir?|Asya
-General|Mars hangi gezegenin yanındadır?|Jupiter
-General|Isik hizi nedir?|300000 km/s
-General|Demirin sembolu nedir?|Fe
-General|Einsteins famous equation?|E=mc2
-Math|2+2 kaç eder?|4
-Math|10 * 5 kaçtır?|50
-Math|15 - 7 kaçtır?|8
-Math|100 / 4 kaçtır?|25
-Math|3 ussu 3 kaçtır?|27
-Math|Karekök 144 kaçtır?|12
-Math|What is 20% of 200?|40
-Math|Prime number after 7?|11
-Math|Factorial of 5?|120
-Math|Area of 5x6 rectangle?|30
-Logic|Tüm kediler hayvansa, hayvanlar nefes alıyorsa, kediler nefes alır mı?|Evet
-Logic|If it rains, the ground gets wet. The ground is wet. Did it rain?|Not necessarily
-Logic|All A are B. All B are C. Is all A C?|Yes
-Logic|Syllogism: No fish can fly. Herring is a fish. Can herring fly?|No
-Logic|If X>5 and X<10, is X=4 possible?|No
-Logic|True or False: If it is snowing, it is cold.|True
-Logic|Contrapositive: If not B then not A?|If A then B
-Logic|If P implies Q, and P is false, is Q true?|Unknown
-Logic|A is taller than B. B is taller than C. Is A taller than C?|Yes
-Logic|If all birds fly and penguins are birds, do penguins fly?|Paradox
-Multilingual|How do you say 'Hello' in Spanish?|Hola
-Multilingual|What is 'Thank you' in French?|Merci
-Multilingual|كيف تقول 'ماء' بالإنجليزية؟|Water
-Multilingual|How to say 'Goodbye' in German?|Auf Wiedersehen
-Multilingual|What is 'Book' in Italian?|Libro
-Multilingual|Comment dire 'Maison' en Anglais?|House
-Multilingual|Wie sagt man 'Liebe' auf Englisch?|Love
-Multilingual|What is 'Sun' in Arabic?|شمس
-Multilingual|What is 'Moon' in Turkish?|Ay
-Multilingual|What is 'Star' in Hindi?|तारा
-"""
-
-BENCHMARK_SET = []
-for line in RAW_BENCHMARK.strip().split('\n'):
-    parts = line.split('|')
-    if len(parts) == 3:
-        BENCHMARK_SET.append({"category": parts[0].strip(), "question": parts[1].strip(), "answer": parts[2].strip()})
+BENCHMARK_SET = [
+    {"category": "General", "question": "Türkiye'nin başkenti nedir?", "answer": "Ankara"}, {"category": "General", "question": "Suyun kimyasal formülü nedir?", "answer": "H2O"},
+    {"category": "Math", "question": "2+2 kaç eder?", "answer": "4"}, {"category": "Math", "question": "10 * 5 kaçtır?", "answer": "50"},
+    {"category": "Logic", "question": "Tüm kediler hayvansa, kediler nefes alır mı?", "answer": "Evet"},
+    {"category": "Multilingual", "question": "How do you say 'Hello' in Spanish?", "answer": "Hola"},
+]
 
 def run_benchmark(client, benchmark_set):
-    categories = {}
-    correct_total = 0
+    categories = {}; correct_total = 0
     for item in benchmark_set:
         try:
             result = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user","content":item["question"]}], temperature=0)
-            answer = result.choices[0].message.content
-            cat = item["category"]
+            answer = result.choices[0].message.content; cat = item["category"]
             if cat not in categories: categories[cat] = {"correct": 0, "total": 0}
             categories[cat]["total"] += 1
-            if item["answer"].lower() in answer.lower():
-                categories[cat]["correct"] += 1
-                correct_total += 1
+            if item["answer"].lower() in answer.lower(): categories[cat]["correct"] += 1; correct_total += 1
         except: pass
     accuracy = round(correct_total/len(benchmark_set)*100, 2) if benchmark_set else 0
     return accuracy, categories
 
+POLICY_TEXT = "**Terms of Service & Privacy Policy**\n**1. Acceptance of Terms** By accessing IQ.ai, you agree to be bound by these Terms.\n**2. Intellectual Property** All rights, IP, algorithms, and code belong exclusively to **Welid Almansor / GJ.AI Company**.\n**3. Logo & Trademark Protection** The GJ.AI logo is 100% owned. Unauthorized use is strictly prohibited.\n**4. Data Privacy** Chat inputs are processed securely."
+
 if "policy_accepted" not in st.session_state: st.session_state.policy_accepted = False
+if "sp_active" not in st.session_state: st.session_state.sp_active = None
 
 if not st.session_state.policy_accepted:
     st.markdown("<h1 style='text-align: center;'>🧠 IQ.ai</h1><p style='text-align: center; color: #a0a0a0;'>Multilingual Token Optimization Engine</p><hr style='border: 1px solid #333333;'>", unsafe_allow_html=True)
@@ -196,6 +119,9 @@ else:
 
     tab1, tab2, tab3, tab4 = st.tabs(["🤖 Chat Engine", "📊 Token Comparison", "🛠️ Surgery Scripts", "🎯 Benchmark Center"])
 
+    # ==========================================
+    # TAB 1: CHAT ENGINE
+    # ==========================================
     with tab1:
         st.markdown("<h1 style='text-align: center;'>🧠 IQ.ai Chat Engine</h1><p class='subtext' style='text-align: center;'>Short, precise answers. Token-optimized.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
         if st.session_state.total_turns > 0: st.caption(f"📊 Total Tokens: {st.session_state.total_tokens} | Avg: {st.session_state.total_tokens/st.session_state.total_turns:.1f}")
@@ -217,26 +143,19 @@ else:
                         full_response = "".join([chunk.choices[0].delta.content or "" for chunk in stream])
                         end_time = time.time()
                         latency_ms = int((end_time - start_time) * 1000)
-                        
                         st.markdown(full_response)
                         
-                        gpt_prompt_tokens = len(enc.encode(prompt))
-                        gpt_response_tokens = len(enc.encode(full_response))
-                        gpt_total = gpt_prompt_tokens + gpt_response_tokens
+                        # Chat engine için yüklü modeli kullan, yoksa default IQ modeli
+                        sp_chat = st.session_state.sp_active if st.session_state.sp_active else sp_iq
                         
-                        iq_total = 0
-                        token_reduction = 0
-                        if sp:
-                            iq_prompt_tokens = len(sp.encode(prompt))
-                            iq_response_tokens = len(sp.encode(full_response))
-                            iq_total = iq_prompt_tokens + iq_response_tokens
-                            if gpt_total > 0: token_reduction = round(100 - ((iq_total / gpt_total) * 100), 2)
+                        gpt_total = len(gpt4_enc.encode(prompt)) + len(gpt4_enc.encode(full_response))
+                        iq_total = len(sp_chat.encode(prompt)) + len(sp_chat.encode(full_response)) if sp_chat else 0
+                        token_reduction = round(100 - ((iq_total / gpt_total) * 100), 2) if (sp_chat and gpt_total > 0) else 0
                         
-                        st.session_state.total_tokens += gpt_total
-                        st.session_state.total_turns += 1
+                        st.session_state.total_tokens += gpt_total; st.session_state.total_turns += 1
                         st.session_state.messages.append({"role": "assistant", "content": full_response})
                         
-                        with st.spinner("🔍 Running Integrity Check (Source & Claim Verification)..."):
+                        with st.spinner("🔍 Running Integrity Check..."):
                             integrity = run_integrity_check(client, prompt, full_response)
                             report = generate_health_report(token_reduction=token_reduction, confidence=integrity["confidence"], hallucination_score=integrity["hallucination_score"], latency=latency_ms)
                             
@@ -248,76 +167,145 @@ else:
                             with col4: st.metric("🏆 Overall Health", f"{report['Overall']}")
 
                             with st.expander("🔬 Detailed AI Integrity Analysis"):
-                                st.subheader("1. Core Metrics")
                                 sc1, sc2, sc3 = st.columns(3)
                                 with sc1: st.metric("Source Match", f"{integrity['source_match']}%")
                                 with sc2: st.metric("Consistency", f"{integrity['consistency']}%")
                                 with sc3: st.metric("Claim Verification", f"{integrity['claim_verification']}%")
-                                
-                                st.subheader("2. Hallucination Report")
                                 st.json({"Risk Level": integrity['risk'], "Hallucination Score": f"{integrity['hallucination_score']}/100", "Reason": integrity['reason']})
-                                
-                                st.subheader("3. Web Sources & Evidence")
                                 if integrity['sources']:
-                                    for src in integrity['sources']:
-                                        st.markdown(f"**{src.get('title', 'No Title')}**")
-                                        st.markdown(f"🔗 [{src.get('url', '#')}]({src.get('url', '#')})")
-                                        st.caption(src.get('body', 'No snippet'))
-                                        st.markdown("---")
-                                else:
-                                    st.warning("No web sources found.")
-                                
-                                st.subheader("🩺 System Health Report (Weighted)")
-                                hcol1, hcol2, hcol3 = st.columns(3)
-                                with hcol1:
-                                    st.metric("Token Efficiency (x0.15)", f"{report['Token Efficiency']}")
-                                    st.metric("Cost Score (x0.15)", f"{report['Cost Score']}")
-                                with hcol2:
-                                    st.metric("Safety Score (x0.30)", f"{report['Safety Score']}")
-                                    st.metric("Confidence (x0.30)", f"{report['Confidence']}")
-                                with hcol3:
-                                    st.metric("Latency Score (x0.10)", f"{report['Latency Score']}")
-                                    st.metric("Overall System Score", f"{report['Overall']}")
-
+                                    for src in integrity['sources']: st.markdown(f"**{src.get('title', '')}** - [Link]({src.get('url', '#')})")
                     except Exception as e: st.error(f"🚫 Error: {str(e)}")
 
+    # ==========================================
+    # TAB 2: TOKEN COMPARISON (DOSYA YÜKLEME + GRAFİK + ROI)
+    # ==========================================
     with tab2:
-        st.markdown("<h1 style='text-align: center;'>📊 Live Token Tax Benchmark</h1><p class='subtext' style='text-align: center;'>GPT-4 Tokenizer vs IQ.ai Custom Tokenizer.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
-        if sp:
-            st.success("✅ IQ.ai Custom Multilingual Tokenizer is Active!")
-            test_sentences = {"🇹🇷 Turkish": "İş arayanları sahte ve hayalet ilanlardan koruyoruz.", "🇸🇦 Arabic": "نحن نحمي الباحثين عن عمل من الإعلانات المزيفة.", "🇮🇳 Hindi": "हम नौकरी तलाशने वालों को नकली विज्ञापनों से बचाते हैं।"}
+        st.markdown("<h1 style='text-align: center;'>📊 Live Token Tax Benchmark</h1><p class='subtext' style='text-align: center;'>GPT-4 vs Llama 3 vs Qwen 2.5 vs Your Custom Model</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
+        
+        st.subheader("📂 Load Your Tokenizer Model")
+        st.markdown("Select your `.model` file below to start the comparison.")
+        
+        uploaded_file = st.file_uploader("Choose a .model file", type=["model"])
+        
+        if uploaded_file is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".model") as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_file_path = tmp_file.name
+            
+            try:
+                sp_custom = spm.SentencePieceProcessor()
+                sp_custom.load(tmp_file_path)
+                st.success("✅ Model Loaded Successfully! Comparing now...")
+                st.session_state.sp_active = sp_custom # Yüklenen modeli oturuma kaydet
+            except Exception as e: 
+                st.error(f"🚫 Error loading model: {e}")
+                st.session_state.sp_active = None
+        
+        sp_tab2 = st.session_state.sp_active
+        
+        if sp_tab2:
+            test_sentences = {
+                "🇹🇷 Turkish": "İş arayanları sahte ve hayalet ilanlardan koruyoruz.", 
+                "🇸🇦 Arabic": "نحن نحمي الباحثين عن عمل من الإعلانات المزيفة.", 
+                "🇮🇳 Hindi": "हम नौकरी तलाशने वालों को नकली विज्ञापनों से बचाते हैं।"
+            }
+            
+            total_reduction = 0
+            lang_count = 0
+            
             for lang, sentence in test_sentences.items():
                 st.markdown(f"<div class='card'>", unsafe_allow_html=True)
                 st.markdown(f"**{lang}**")
                 st.markdown(f"<p class='subtext'><i>\"{sentence}\"</i></p>", unsafe_allow_html=True)
-                gpt_tokens = enc.encode(sentence); gpt_count = len(gpt_tokens)
-                iq_tokens = sp.encode(sentence, out_type=str); iq_count = len(iq_tokens)
-                reduction = 100 - ((iq_count / gpt_count) * 100) if gpt_count > 0 else 0
-                col1, col2, col3 = st.columns(3)
-                with col1: st.metric("GPT-4 Tokenizer", f"{gpt_count} Tokens")
-                with col2: st.metric("IQ.ai Unigram", f"{iq_count} Tokens")
-                with col3: st.metric("Token Reduction", f"%{reduction:.1f}", delta="Saved", delta_color="normal")
-                with st.expander("🔍 GPT-4 vs IQ.ai Token Breakdown"):
-                    st.write("**GPT-4 Fragments:**", [enc.decode([t]) for t in gpt_tokens])
-                    st.write("**IQ.ai Fragments:**", iq_tokens)
+                
+                gpt_count = len(gpt4_enc.encode(sentence))
+                llama_count = len(llama_tok.encode(sentence, add_special_tokens=False))
+                qwen_count = len(qwen_tok.encode(sentence, add_special_tokens=False))
+                custom_count = len(sp_tab2.encode(sentence)) 
+                reduction = 100 - ((custom_count / gpt_count) * 100) if gpt_count > 0 else 0
+                
+                total_reduction += reduction
+                lang_count += 1
+                
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1: st.metric("🔵 GPT-4", f"{gpt_count} Tok")
+                with col2: st.metric("🦙 Llama 3", f"{llama_count} Tok")
+                with col3: st.metric("🟢 Qwen 2.5", f"{qwen_count} Tok")
+                with col4: st.metric("🧠 Your Model", f"{custom_count} Tok")
+                with col5: st.metric("📉 Reduction", f"%{reduction:.1f}", delta="Saved", delta_color="normal")
+                
+                # ==========================================
+                # 1. EKLENEN: ÇUBUK GRAFİK (BAR CHART)
+                # ==========================================
+                df = pd.DataFrame({
+                    "Model": ["GPT-4", "Llama 3", "Qwen 2.5", "Your Model"],
+                    "Token Count": [gpt_count, llama_count, qwen_count, custom_count]
+                })
+                
+                fig = px.bar(df, x="Model", y="Token Count", color="Model", text="Token Count",
+                             color_discrete_map={"GPT-4": "#6a11cb", "Llama 3": "#2575fc", "Qwen 2.5": "#00d2ff", "Your Model": "#00f260"})
+                
+                fig.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', 
+                    plot_bgcolor='rgba(0,0,0,0)', 
+                    font_color='white',
+                    title=f'{lang} Token Consumption',
+                    xaxis_title="Models",
+                    yaxis_title="Tokens",
+                    showlegend=False
+                )
+                fig.update_traces(textposition='outside')
+                st.plotly_chart(fig, use_container_width=True)
+                # ==========================================
+                
                 st.markdown("</div>", unsafe_allow_html=True)
-        else: st.warning("⚠️ Trained model (`iq_ai_tokenizer.model`) not found in repository.")
+                
+            # ==========================================
+            # 2. EKLENEN: ROI HESAPLAMASI (POTENTIAL ANNUAL SAVINGS)
+            # ==========================================
+            if lang_count > 0:
+                avg_reduction = total_reduction / lang_count
+                
+                st.markdown("<hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
+                st.subheader("💰 Potential Annual Savings (ROI Calculator)")
+                st.markdown("See how much you can save annually on your LLM compute costs by switching to IQ.ai tokenization.")
+                
+                col_roi1, col_roi2 = st.columns([1, 2])
+                
+                with col_roi1:
+                    monthly_spend = st.number_input("Enter your estimated monthly LLM API spend ($):", min_value=100, value=5000, step=500)
+                
+                with col_roi2:
+                    annual_spend_current = monthly_spend * 12
+                    annual_spend_iqai = annual_spend_current * (1 - (avg_reduction / 100))
+                    annual_savings = annual_spend_current - annual_spend_iqai
+                    
+                    st.metric("🔵 Current Annual LLM Cost", f"${annual_spend_current:,.2f}")
+                    st.metric("🧠 Estimated IQ.ai Annual Cost", f"${annual_spend_iqai:,.2f}")
+                    st.metric("🚀 Potential Annual Savings", f"${annual_savings:,.2f}", delta=f"{avg_reduction:.1f}% Reduction", delta_color="normal")
+            # ==========================================
 
+    # ==========================================
+    # TAB 3: SURGERY SCRIPTS
+    # ==========================================
     with tab3:
         st.markdown("<h1 style='text-align: center;'>🛠️ Surgery Scripts</h1><p class='subtext' style='text-align: center;'>For Enterprise Integration.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
         with st.expander("🩺 Step 1: Mean-Composition Surgery"):
-            st.code("import torch\nfrom transformers import AutoModelForCausalLM, AutoTokenizer\nmodel = AutoModelForCausalLM.from_pretrained('meta-llama/Meta-Llama-3-8B')\nold_tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3-8B')\n# Load your trained IQ.ai tokenizer and add tokens...\n# model.resize_token_embeddings(len(old_tokenizer))", language='python')
+            st.code("import torch\nfrom transformers import AutoModelForCausalLM, AutoTokenizer\nmodel = AutoModelForCausalLM.from_pretrained('meta-llama/Meta-Llama-3-8B')", language='python')
         with st.expander("📦 Step 2: 4-Bit Quantization"):
-            st.code("from awq import AutoAWQForCausalLM\nmodel = AutoAWQForCausalLM.from_pretrained('model_path')\nmodel.quantize(tokenizer, quant_config={ 'zero_point': True, 'q_group_size': 128, 'w_bit': 4 })", language='python')
+            st.code("from awq import AutoAWQForCausalLM\nmodel = AutoAWQForCausalLM.from_pretrained('model_path')", language='python')
 
+    # ==========================================
+    # TAB 4: BENCHMARK CENTER
+    # ==========================================
     with tab4:
         st.markdown("<h1 style='text-align: center;'>🎯 Benchmark Center</h1><p class='subtext' style='text-align: center;'>Enterprise-grade logic and accuracy tests.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
         if not api_key_input: st.warning("⚠️ Please enter your Groq API Key in the sidebar to run benchmarks.")
         else:
-            st.info(f"Currently loaded with **{len(BENCHMARK_SET)}** categorized questions (General, Math, Logic, Multilingual).")
+            st.info(f"Currently loaded with **{len(BENCHMARK_SET)}** categorized questions.")
             if st.button("🚀 Run Full Benchmark Test", type="primary"):
                 client = Groq(api_key=api_key_input)
-                with st.spinner("Running benchmark tests... This may take a minute."):
+                with st.spinner("Running benchmark tests..."):
                     accuracy, categories = run_benchmark(client, BENCHMARK_SET)
                 st.markdown("<div class='card'>", unsafe_allow_html=True)
                 st.metric("🎯 Overall Benchmark Accuracy", f"{accuracy}%")
