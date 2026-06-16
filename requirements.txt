@@ -3,3 +3,9 @@ groq
 sentencepiece
 tiktoken
 duckduckgo-search
+transformers
+torch
+fastapi
+uvicorn
+plotly
+pandas
