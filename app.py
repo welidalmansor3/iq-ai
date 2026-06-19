@@ -32,12 +32,54 @@ if os.path.exists(DEFAULT_MODEL):
     sp = spm.SentencePieceProcessor()
     sp.load(DEFAULT_MODEL)
 
+# --- GİZLİ API ANAHTARI (Kullanıcı görmüyor, Streamlit Secrets'ten geliyor) ---
+try:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+except:
+    GROQ_API_KEY = None
+
+# --- KURUMSAL GİZLİLİK VE GÜVENLİK POLİTİKASI (YENİ MADDELER EKLENDİ) ---
 POLICY_TEXT = """
 **Terms of Service & Privacy Policy**
-**1. Acceptance of Terms** By accessing IQ.ai ("the Platform"), you agree to be bound by these Terms.
-**2. Intellectual Property & Copyrights** All rights, IP, algorithms, and code belong exclusively to **Welid Almansor / GJ.AI Company**.
-**3. Logo & Trademark Protection** The GJ.AI logo is 100% owned. Unauthorized use is strictly prohibited and subject to lawsuit.
-**4. Data Privacy** Chat inputs are processed securely. Trained models are hosted for demonstration.
+
+**1. Acceptance of Terms** 
+By accessing IQ.ai ("the Platform"), you agree to be bound by these Terms.
+
+**2. Intellectual Property & Copyrights** 
+All rights, IP, algorithms, and code belong exclusively to **Welid Almansor / GJ.AI Company**.
+
+**3. Logo & Trademark Protection** 
+The GJ.AI logo is 100% owned. Unauthorized use is strictly prohibited and subject to lawsuit.
+
+**4. Data Privacy** 
+Chat inputs are processed securely. Trained models are hosted for demonstration.
+
+**5. Zero Data Retention Policy**
+IQ.ai operates under a Zero Data Retention model. Customer prompts, responses, uploaded content, and metadata are processed in memory only and are not permanently stored, logged, cached, or used for model training.
+
+**6. Customer-Managed Deployment**
+IQ.ai is designed to support customer-managed deployments. Customers may deploy and operate IQ.ai within their own infrastructure and security environments. Customer data remains within the customer's systems at all times.
+
+**7. Shared Responsibility Model**
+Customers are responsible for deployment configuration, infrastructure management, network security, access controls, API key management, regulatory compliance, and data protection within their environments.
+GJ.AI is responsible for maintaining the security, reliability, and integrity of the IQ.ai software, including vulnerability remediation, software updates, and technical support.
+
+**8. Security Practices**
+All communications with IQ.ai services are encrypted using industry-standard TLS protocols.
+GJ.AI follows secure software development practices and regularly reviews the platform for security vulnerabilities.
+
+**9. Limitation of Liability**
+To the maximum extent permitted by applicable law, GJ.AI shall not be liable for any indirect, incidental, consequential, or special damages arising from the use of IQ.ai.
+Customers are solely responsible for validating outputs and ensuring compliance with their internal policies and applicable regulations.
+
+**10. Contact Information**
+For questions regarding security, privacy, intellectual property, or enterprise deployments, please contact:
+Welid Almansor
+Founder, GJ.AI
+Email: velitgone31@gmail.com
+Phone: +964 775 021 7227
+LinkedIn: https://www.linkedin.com/in/welidalmansorgreatjobai
+
 By checking the box below, you confirm your agreement.
 """
 
@@ -189,8 +231,8 @@ else:
 
     with st.sidebar:
         st.image(LOGO_URL, use_container_width=True); st.markdown("---")
-        st.header("⚙️ Settings"); api_key_input = st.text_input("Groq API Key", type="password")
-        with st.expander("📖 Get Free API Key"): st.markdown("1. Go to [Groq Console](https://console.groq.com)\n2. Sign Up -> API Keys -> Create\n3. Copy `gsk_...`")
+        st.header("ℹ️ IQ.ai Engine")
+        st.markdown("The engine is running securely in the background. No API key required. Just use the tabs!")
         st.markdown("---")
         if st.button("🗑️ Clear Chat"): st.session_state.messages = []; st.session_state.total_tokens = 0; st.session_state.total_turns = 0; st.rerun()
 
@@ -203,13 +245,14 @@ else:
             with st.chat_message(message["role"]): st.markdown(message["content"])
             
         if prompt := st.chat_input("Type your message here..."):
-            if not api_key_input: st.error("🚫 Enter Groq API key in sidebar.")
+            if not GROQ_API_KEY:
+                st.error("🚫 Backend API Key is missing. Please configure it in Streamlit Secrets.")
             else:
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user"): st.markdown(prompt)
                 with st.chat_message("assistant"):
                     try:
-                        client = Groq(api_key=api_key_input)
+                        client = Groq(api_key=GROQ_API_KEY)
                         sys_pr = {"role": "system", "content": "You are IQ.ai, the world's best NLP Engineer. Be concise."}
                         
                         start_time = time.time()
@@ -312,11 +355,12 @@ else:
 
     with tab4:
         st.markdown("<h1 style='text-align: center;'>🎯 Benchmark Center</h1><p class='subtext' style='text-align: center;'>Enterprise-grade logic and accuracy tests.</p><hr style='border: 1px solid #252530;'>", unsafe_allow_html=True)
-        if not api_key_input: st.warning("⚠️ Please enter your Groq API Key in the sidebar to run benchmarks.")
+        if not GROQ_API_KEY:
+            st.warning("⚠️ Backend API Key is missing. Please configure it in Streamlit Secrets.")
         else:
             st.info(f"Currently loaded with **{len(BENCHMARK_SET)}** categorized questions (General, Math, Logic, Multilingual).")
             if st.button("🚀 Run Full Benchmark Test", type="primary"):
-                client = Groq(api_key=api_key_input)
+                client = Groq(api_key=GROQ_API_KEY)
                 with st.spinner("Running benchmark tests... This may take a minute."):
                     accuracy, categories = run_benchmark(client, BENCHMARK_SET)
                 st.markdown("<div class='card'>", unsafe_allow_html=True)
