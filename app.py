@@ -25,7 +25,7 @@ st.markdown("""
 
 LOGO_URL = "https://z-cdn-media.chatglm.cn/files/97efb701-480f-41e8-a54d-d828ce634224.jpeg?auth_key=1880000279-e3e53963895d4cb2b17766ad29dd2480-0-3f2ced5648a41f4923250c661dc275fd"
 DEFAULT_MODEL = "iq_ai_tokenizer.model"
-GROQ_MODEL = "llama3-8b-8192"
+GROQ_MODEL = "gpt-oss-20b"
 
 enc = tiktoken.encoding_for_model("gpt-4")
 sp = None
