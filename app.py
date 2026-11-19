@@ -227,7 +227,7 @@ else:
 
                     with st.expander("🔍 Token Detayları"):
                         st.write("**GPT-4:**", [enc.decode([t]) for t in gpt_tokens[:20]], "..." if len(gpt_tokens) > 20 else "")
-                        st.write("**IQ.ai:**", iq_tokens[:20], "..." if len(iq_count) > 20 else "")
+                        st.write("**IQ.ai:**", iq_tokens[:20], "..." if len(iq_tokens) > 20 else "")
                     st.markdown("</div>", unsafe_allow_html=True)
 
             # --- GENEL ORTALAMA ---
